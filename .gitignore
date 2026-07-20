@@ -1,0 +1,11 @@
+build/
+bin/
+*.o
+*.exe
+data/
+*.pcap
+*.tar.xz
+*.csv
+__pycache__/
+.venv/
+.vscode/
