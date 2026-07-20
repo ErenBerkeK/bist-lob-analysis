@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <vector>
 #include "itch_messages.h"
 
 class PcapReader {
@@ -12,7 +13,6 @@ private:
     PcapGlobalHeader globalHeader;
 
 public:
-    // PCAP dosyasini binary modda acan fonksiyon
     bool open(const std::string& filepath) {
         file.open(filepath, std::ios::binary);
         if (!file.is_open()) {
@@ -28,11 +28,25 @@ public:
         }
 
         std::cout << "[SUCCESS] PCAP dosyasi basariyla acildi!" << std::endl;
-        std::cout << "Magic Number: 0x" << std::hex << globalHeader.magicNumber << std::dec << std::endl;
         return true;
     }
 
-    // Dosyayı kapatan fonksiyon
+    // Bir sonraki paketin basligini ve verisini okur
+    bool readNextPacket(PcapPacketHeader& packetHeader, std::vector<char>& packetBuffer) {
+        if (!file || file.eof()) return false;
+
+        // Paket Basligini Oku (16 Bytes)
+        file.read(reinterpret_cast<char*>(&packetHeader), sizeof(PcapPacketHeader));
+        if (file.gcount() < sizeof(PcapPacketHeader)) return false;
+
+        // Paketin icerik boyutuna gore tamponu (buffer) boyutlandir
+        packetBuffer.resize(packetHeader.inclLen);
+
+        // Paket icerigini oku
+        file.read(packetBuffer.data(), packetHeader.inclLen);
+        return file.gcount() == packetHeader.inclLen;
+    }
+
     void close() {
         if (file.is_open()) {
             file.close();
