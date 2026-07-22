@@ -3,9 +3,32 @@
 
 #include <iostream>
 #include <fstream>
-#include <string>
 #include <vector>
-#include "itch_messages.h"
+#include <string>
+#include <cstdint>
+
+#pragma pack(push, 1)
+
+// PCAP Genel Dosya Başlığı (24 Bytes)
+struct PcapGlobalHeader {
+    uint32_t magic_number;   // Magic Number (0xa1b2c3d4)
+    uint16_t version_major;  // Major Versiyon
+    uint16_t version_minor;  // Minor Versiyon
+    int32_t  thiszone;       // GMT Zaman Düzeltmesi
+    uint32_t sigfigs;        // Zaman Damgası Hassasiyeti
+    uint32_t snaplen;        // Maksimum Paket Boyutu
+    uint32_t network;        // Data Link Tipi
+};
+
+// PCAP Paket Başlığı (16 Bytes)
+struct PcapPacketHeader {
+    uint32_t ts_sec;         // Zaman Damgası (Saniye)
+    uint32_t ts_usec;        // Zaman Damgası (Mikrosaniye)
+    uint32_t inclLen;        // Dosyadaki Paket Boyutu
+    uint32_t origLen;        // Gerçek Paket Boyutu
+};
+
+#pragma pack(pop)
 
 class PcapReader {
 private:
@@ -13,17 +36,24 @@ private:
     PcapGlobalHeader globalHeader;
 
 public:
-    bool open(const std::string& filepath) {
-        file.open(filepath, std::ios::binary);
+    PcapReader() {}
+
+    ~PcapReader() {
+        if (file.is_open()) {
+            file.close();
+        }
+    }
+
+    bool open(const std::string& filePath) {
+        file.open(filePath, std::ios::binary);
         if (!file.is_open()) {
-            std::cerr << "Hata: PCAP dosyasi acilamadi -> " << filepath << std::endl;
+            std::cerr << "Hata: PCAP dosyasi acilamadi -> " << filePath << std::endl;
             return false;
         }
 
-        // Global Header'i oku (24 Bytes)
         file.read(reinterpret_cast<char*>(&globalHeader), sizeof(PcapGlobalHeader));
-        if (!file) {
-            std::cerr << "Hata: PCAP Global Header okunamadi." << std::endl;
+        if (file.gcount() != sizeof(PcapGlobalHeader)) {
+            std::cerr << "Hata: PCAP basligi okunamadi!" << std::endl;
             return false;
         }
 
@@ -31,31 +61,15 @@ public:
         return true;
     }
 
-    // Bir sonraki paketin basligini ve verisini okur
     bool readNextPacket(PcapPacketHeader& packetHeader, std::vector<char>& packetBuffer) {
-        if (!file || file.eof()) return false;
+        if (!file.is_open() || file.eof()) return false;
 
-        // Paket Basligini Oku (16 Bytes)
         file.read(reinterpret_cast<char*>(&packetHeader), sizeof(PcapPacketHeader));
         if (file.gcount() < sizeof(PcapPacketHeader)) return false;
 
-        // Paketin icerik boyutuna gore tamponu (buffer) boyutlandir
         packetBuffer.resize(packetHeader.inclLen);
-
-        // Paket icerigini oku
         file.read(packetBuffer.data(), packetHeader.inclLen);
         return file.gcount() == packetHeader.inclLen;
-    }
-
-    void close() {
-        if (file.is_open()) {
-            file.close();
-            std::cout << "PCAP dosyasi kapatildi." << std::endl;
-        }
-    }
-
-    ~PcapReader() {
-        close();
     }
 };
 

@@ -1,3 +1,34 @@
-# BIST 50 Limit Order Book & Analytics Ecosystem
+# High-Frequency BIST L2 Limit Order Book (LOB) Engine & Quant Pipeline
 
-Bu proje, `.pcap` formatındaki ITCH protokolü paketlerini işleyerek 10 kademeli Emir Defteri (Limit Order Book) oluşturan, verileri ilişkisel bir veritabanına kaydeden ve BIST50 Pay/Vadeli sembol çiftleri arasındaki finansal ilişkileri analiz eden bir sistemdir.
+A high-performance C++17 market data parser and LOB reconstruction engine for Borsa İstanbul (BIST), integrated with PostgreSQL persistence and Python quantitative analysis tools.
+
+## 🚀 Key Features
+
+- **C++17 High Performance Engine:** Parses binary NASDAQ ITCH protocol packets encapsulated in Ethernet/IP/UDP/MoldUDP64 frames.
+- **Real-Time Level-2 Reconstruction:** Maintains order book depth up to 10 levels for equities (`.E`) and futures contracts (`F_`).
+- **Zero-Copy Memory Design:** Utilizes `std::unordered_map` and flat price-level buffers for sub-microsecond snapshot generation.
+- **PostgreSQL Persistence:** Auto-schema migration, prepared batch statements, and composite B-Tree indexes on `(symbol, sequence_number)`.
+- **Quantitative Alpha Research:** Calculates 10-level Exponentially-Weighted Order Book Imbalance (OBI) and short-term future return correlations.
+
+## 🏗 System Architecture
+[ PCAP Market Data ] ──> [ C++ MoldUDP64 / ITCH Parser ]
+│
+▼
+[ L2 Order Book Engine (10 Levels) ]
+│
+▼
+[ PostgreSQL Database (Index Optimized) ]
+│
+▼
+[ Python Quant Analytics & OBI Signals ]
+## 📊 Quant Alpha Metrics
+
+Order Book Imbalance ($OBI$) across 10 price levels using exponential weight decay ($w_i = e^{-0.4(i-1)}$):
+
+$$OBI = \frac{\sum_{i=1}^{10} w_i \cdot Q_{bid,i} - \sum_{i=1}^{10} w_i \cdot Q_{ask,i}}{\sum_{i=1}^{10} w_i \cdot Q_{bid,i} + \sum_{i=1}^{10} w_i \cdot Q_{ask,i}}$$
+
+## 💻 Tech Stack
+- **Language:** C++17, Python 3.10+
+- **Database:** PostgreSQL 15+ (`libpqxx`)
+- **Libraries:** Pandas, NumPy, Matplotlib, `psycopg2`
+- **Protocol Standards:** BIST ITCH v1.0, MoldUDP64

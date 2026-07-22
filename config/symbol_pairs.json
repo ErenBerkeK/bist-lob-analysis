@@ -1,0 +1,14 @@
+{
+  "pairs": [
+    {"spot": "AKBNK.E", "future": "F_AKBNK0426", "label": "AKBNK"},
+    {"spot": "ASELS.E", "future": "F_ASELS0426", "label": "ASELS"},
+    {"spot": "BIMAS.E", "future": "F_BIMAS0426", "label": "BIMAS"},
+    {"spot": "EREGL.E", "future": "F_EREGL0426", "label": "EREGL"},
+    {"spot": "GARAN.E", "future": "F_GARAN0426", "label": "GARAN"},
+    {"spot": "ISCTR.E", "future": "F_ISCTR0426", "label": "ISCTR"},
+    {"spot": "KCHOL.E", "future": "F_KCHOL0426", "label": "KCHOL"},
+    {"spot": "PGSUS.E", "future": "F_PGSUS0426", "label": "PGSUS"},
+    {"spot": "THYAO.E", "future": "F_THYAO0426", "label": "THYAO"},
+    {"spot": "TUPRS.E", "future": "F_TUPRS0426", "label": "TUPRS"}
+  ]
+}
