@@ -1,64 +1,61 @@
 import psycopg2
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 
 # 1. PostgreSQL Bağlantısı
 conn = psycopg2.connect("dbname=bist_lob_db user=postgres password=erenberke host=localhost port=5432")
 
-# 2. 10 Kademeli Derinlik Verilerini Çek
+# 2. Pay (THYAO.E) ve Vadeli (F_THYAO0426) Verilerini Çekip Birleştirme
 query = """
-SELECT sequence_number, mid_price,
-       bid_qty_1, bid_qty_2, bid_qty_3, bid_qty_4, bid_qty_5, bid_qty_6, bid_qty_7, bid_qty_8, bid_qty_9, bid_qty_10,
-       ask_qty_1, ask_qty_2, ask_qty_3, ask_qty_4, ask_qty_5, ask_qty_6, ask_qty_7, ask_qty_8, ask_qty_9, ask_qty_10
-FROM price_table_snapshots
-WHERE symbol = 'THYAO.E'
-ORDER BY sequence_number ASC;
+SELECT 
+    s.sequence_number,
+    s.mid_price AS spot_mid,
+    s.spread AS spot_spread,
+    f.mid_price AS futures_mid,
+    f.spread AS futures_spread
+FROM price_table_snapshots s
+JOIN price_table_snapshots f 
+  ON s.sequence_number = f.sequence_number
+WHERE s.symbol = 'THYAO.E' 
+  AND f.symbol = 'F_THYAO0426'
+ORDER BY s.sequence_number ASC;
 """
+
 df = pd.read_sql(query, conn)
 conn.close()
 
 if not df.empty:
-    # 3. Kademelere Azalan Ağırlık Kat sayısı (Üstel Azalma - Exponential Decay)
-    # 1. Kademe en yüksek ağırlığa (1.0), 10. Kademe en düşük ağırlığa sahip olur
-    weights = np.exp(-0.4 * np.arange(10)) 
+    # 3. Pay vs. Vadeli İlişkisi Hesaplamaları
+    # Basis (Fiyat Farkı) = Vadeli Fiyat - Pay Fiyatı
+    df['basis'] = df['futures_mid'] - df['spot_mid']
     
-    bid_cols = [f'bid_qty_{i}' for i in range(1, 11)]
-    ask_cols = [f'ask_qty_{i}' for i in range(1, 11)]
-    
-    weighted_bid = (df[bid_cols].values * weights).sum(axis=1)
-    weighted_ask = (df[ask_cols].values * weights).sum(axis=1)
-    
-    # 10 Kademeli Ağırlıklı OBI
-    df['weighted_obi'] = (weighted_bid - weighted_ask) / (weighted_bid + weighted_ask + 1e-8)
-    
-    # Sinyal Yumuşatma (50 Snapshotluk Hareketli Ortalama)
-    df['obi_smoothed'] = df['weighted_obi'].rolling(window=50).mean()
-    
-    # Gelecekteki Fiyat Değişimi (50 snapshot sonraki return)
-    df['future_return'] = df['mid_price'].shift(-50) - df['mid_price']
-    
-    # OBI Sinyali ile Gelecekteki Fiyat Arasındaki Korelasyon
-    corr = df['obi_smoothed'].corr(df['future_return'])
-    print(f"\n==================================================")
-    print(f"10-Kademe Ağırlıklı OBI - Fiyat Değişimi Korelasyonu: {corr:.4f}")
-    print(f"==================================================\n")
+    # Momentum (Fiyat Değişim Hızı - 10 snapshotluk getiri)
+    df['spot_momentum'] = df['spot_mid'].diff(10)
+    df['futures_momentum'] = df['futures_mid'].diff(10)
 
-    # 4. Grafik Görselleştirme
+    # 4. CSV Formatında Sonuç Raporu Dışa Aktarma (İstenen Kriter)
+    csv_filename = "THYAO_Spot_vs_Futures_Analysis.csv"
+    df.to_csv(csv_filename, index=False)
+    print(f"\n[BAŞARILI] Analiz sonuçları CSV dosyasına aktarıldı: {csv_filename}")
+
+    # 5. Grafik Görselleştirme (Pay vs Vadeli Fiyatı ve Basis/Spread İlişkisi)
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
 
-    ax1.plot(df['sequence_number'], df['mid_price'], color='blue', label='Mid Price')
-    ax1.set_title(f'THYAO.E Multi-Level Weighted OBI (Alpha Sinyal Korelasyonu: {corr:.4f})')
+    ax1.plot(df['sequence_number'], df['spot_mid'], label='Spot (THYAO.E)', color='blue')
+    ax1.plot(df['sequence_number'], df['futures_mid'], label='Futures (F_THYAO0426)', color='orange', linestyle='--')
+    ax1.set_title('THYAO Pay vs. Vadeli Fiyat İlişkisi & Momentum Analizi')
     ax1.set_ylabel('Fiyat (TL)')
     ax1.legend()
     ax1.grid(True)
 
-    ax2.plot(df['sequence_number'], df['obi_smoothed'], color='darkgreen', label='50-Period Smoothed 10-Level OBI')
+    ax2.plot(df['sequence_number'], df['basis'], label='Basis (Vadeli - Spot Farkı)', color='purple')
     ax2.axhline(0, color='black', linestyle='--', alpha=0.5)
     ax2.set_xlabel('Sequence Number')
-    ax2.set_ylabel('Ağırlıklı OBI (-1 ile +1)')
+    ax2.set_ylabel('Fiyat Farkı (TL)')
     ax2.legend()
     ax2.grid(True)
 
     plt.tight_layout()
     plt.show()
+else:
+    print("Veri bulunamadı! Lütfen veritabanını kontrol edin.")
