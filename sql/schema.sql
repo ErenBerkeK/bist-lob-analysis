@@ -1,8 +1,16 @@
--- BIST LOB Analysis Database Schema
--- PostgreSQL
+-- BIST LOB Analysis PostgreSQL şeması.
+-- Önce hedef veritabanını oluşturun, sonra bu dosyayı o veritabanında çalıştırın.
 
-CREATE DATABASE bist_lob_db;
-\c bist_lob_db;
+CREATE TABLE IF NOT EXISTS analysis_runs (
+    id              BIGSERIAL PRIMARY KEY,
+    pcap_path       TEXT NOT NULL,
+    snapshot_every  BIGINT NOT NULL,
+    status          VARCHAR(16) NOT NULL DEFAULT 'running',
+    started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at     TIMESTAMPTZ,
+    CHECK (snapshot_every > 0),
+    CHECK (status IN ('running', 'completed', 'failed'))
+);
 
 CREATE TABLE IF NOT EXISTS order_book_directory (
     order_book_id   INTEGER PRIMARY KEY,
@@ -15,6 +23,7 @@ CREATE TABLE IF NOT EXISTS order_book_directory (
 
 CREATE TABLE IF NOT EXISTS price_table_snapshots (
     id              BIGSERIAL PRIMARY KEY,
+    run_id          BIGINT REFERENCES analysis_runs(id),
     sequence_number BIGINT NOT NULL,
     event_ts_sec    BIGINT,
     event_ts_nsec   BIGINT,
@@ -47,14 +56,13 @@ CREATE TABLE IF NOT EXISTS price_table_snapshots (
     captured_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_pts_sequence ON price_table_snapshots(sequence_number);
-CREATE INDEX IF NOT EXISTS idx_pts_symbol ON price_table_snapshots(symbol);
-CREATE INDEX IF NOT EXISTS idx_pts_order_book_id ON price_table_snapshots(order_book_id);
-CREATE INDEX IF NOT EXISTS idx_pts_event_ts ON price_table_snapshots(event_ts_sec, event_ts_nsec);
-CREATE INDEX IF NOT EXISTS idx_pts_symbol_seq ON price_table_snapshots(symbol, sequence_number);
+-- Eski kurulumlarla uyumluluk: mevcut tabloya run_id eklenir.
+ALTER TABLE price_table_snapshots
+    ADD COLUMN IF NOT EXISTS run_id BIGINT REFERENCES analysis_runs(id);
 
 CREATE TABLE IF NOT EXISTS order_events (
     id              BIGSERIAL PRIMARY KEY,
+    run_id          BIGINT REFERENCES analysis_runs(id),
     sequence_number BIGINT NOT NULL,
     event_ts_sec    BIGINT,
     event_ts_nsec   BIGINT,
@@ -68,6 +76,17 @@ CREATE TABLE IF NOT EXISTS order_events (
     captured_at     TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_oe_sequence ON order_events(sequence_number);
-CREATE INDEX IF NOT EXISTS idx_oe_symbol ON order_events(symbol);
-CREATE INDEX IF NOT EXISTS idx_oe_order_book_id ON order_events(order_book_id);
+ALTER TABLE order_events
+    ADD COLUMN IF NOT EXISTS run_id BIGINT REFERENCES analysis_runs(id);
+
+CREATE INDEX IF NOT EXISTS idx_pts_sequence ON price_table_snapshots(sequence_number);
+CREATE INDEX IF NOT EXISTS idx_pts_symbol_seq ON price_table_snapshots(symbol, sequence_number);
+CREATE INDEX IF NOT EXISTS idx_pts_event_ts ON price_table_snapshots(event_ts_sec, event_ts_nsec);
+CREATE INDEX IF NOT EXISTS idx_pts_run_symbol_seq ON price_table_snapshots(run_id, symbol, sequence_number);
+CREATE INDEX IF NOT EXISTS idx_pts_run_order_book_seq ON price_table_snapshots(run_id, order_book_id, sequence_number);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pts_run_symbol_seq
+    ON price_table_snapshots(run_id, symbol, sequence_number)
+    WHERE run_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_oe_run_symbol_seq ON order_events(run_id, symbol, sequence_number);
+CREATE INDEX IF NOT EXISTS idx_oe_run_order_book_seq ON order_events(run_id, order_book_id, sequence_number);

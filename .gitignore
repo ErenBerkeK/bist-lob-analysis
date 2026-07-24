@@ -1,11 +1,27 @@
+# --- Derleme ciktilari ---
 build/
+build-*/
 bin/
 *.o
 *.exe
+
+# --- Ham veri (buyuk dosyalar) ---
 data/
+db_data/
 *.pcap
 *.tar.xz
-*.csv
+
+# --- Turetilmis analiz ciktilari ---
+output/reports/*.csv
+output/charts/*.png
+
+# --- Gizli bilgiler ---
+.env
+.streamlit/secrets.toml
+
+# --- Python & IDE artiklari ---
 __pycache__/
+*.pyc
 .venv/
 .vscode/
+*.log

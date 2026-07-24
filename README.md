@@ -29,6 +29,33 @@ $$OBI = \frac{\sum_{i=1}^{10} w_i \cdot Q_{bid,i} - \sum_{i=1}^{10} w_i \cdot Q_
 
 ## 💻 Tech Stack
 - **Language:** C++17, Python 3.10+
-- **Database:** PostgreSQL 15+ (`libpqxx`)
+- **Database:** PostgreSQL 15+ (`libpq`)
 - **Libraries:** Pandas, NumPy, Matplotlib, `psycopg2`
 - **Protocol Standards:** BIST ITCH v1.0, MoldUDP64
+
+## Çalıştırma ayarları
+
+PCAP dosya yolu ve veritabanı parolası kaynak koda yazılmaz. PowerShell
+oturumunda aşağıdaki değişkenleri ayarlayın (örnek değerler için
+`.env.example` dosyasına bakın):
+
+```powershell
+$env:BIST_PCAP_PATH = 'C:/veri/itch-pri-20260427.pcap'
+$env:BIST_DB_CONN = 'dbname=bist_lob_db host=localhost port=5432 user=postgres'
+$env:PGPASSWORD = 'parolaniz'
+```
+
+Ardından CMake ile derleyip motoru çalıştırın:
+
+```powershell
+cmake -S . -B build
+cmake --build build --config Release
+.\build\Release\lob_engine.exe --snapshot-every 5000
+```
+
+PostgreSQL standart konumda bulunamazsa yapılandırma sırasında konumunu
+belirtin:
+
+```powershell
+cmake -S . -B build -DPostgreSQL_ROOT='C:/Program Files/PostgreSQL/18'
+```

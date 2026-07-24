@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <sstream>
 #include <algorithm>
+#include <cstdlib>
 #include <winsock2.h>
 #pragma comment(lib, "ws2_32.lib")
 
@@ -70,6 +71,22 @@ static std::string sqlEscape(const std::string& s) {
     return out;
 }
 
+static std::string getEnv(const char* name) {
+    const char* value = std::getenv(name);
+    return value ? value : "";
+}
+
+static void printUsage(const char* program) {
+    std::cout
+        << "Kullanim:\n  " << program
+        << " --pcap <dosya.pcap> [--conn <libpq_baglanti>]"
+        << " [--max-packets N] [--snapshot-every N]\n\n"
+        << "Ortam degiskenleri:\n"
+        << "  BIST_PCAP_PATH  --pcap verilmezse kullanilir\n"
+        << "  BIST_DB_CONN    --conn verilmezse kullanilir\n"
+        << "  PGPASSWORD      PostgreSQL parolasi (baglanti dizisine yazmayin)\n";
+}
+
 static bool execSql(PGconn* conn, const std::string& sql) {
     PGresult* res = PQexec(conn, sql.c_str());
     ExecStatusType st = PQresultStatus(res);
@@ -80,6 +97,22 @@ static bool execSql(PGconn* conn, const std::string& sql) {
     }
     PQclear(res);
     return true;
+}
+
+static uint64_t createAnalysisRun(PGconn* conn, const std::string& pcapPath, uint64_t snapshotEvery) {
+    std::ostringstream query;
+    query << "INSERT INTO analysis_runs (pcap_path,snapshot_every,status) VALUES ('"
+          << sqlEscape(pcapPath) << "'," << snapshotEvery << ",'running') RETURNING id;";
+
+    PGresult* res = PQexec(conn, query.str().c_str());
+    if (PQresultStatus(res) != PGRES_TUPLES_OK || PQntuples(res) != 1) {
+        std::cerr << "[SQL HATA] Calisma kaydi olusturulamadi: " << PQerrorMessage(conn) << std::endl;
+        PQclear(res);
+        return 0;
+    }
+    uint64_t runId = std::stoull(PQgetvalue(res, 0, 0));
+    PQclear(res);
+    return runId;
 }
 
 static void adjustLevel(OrderBookLevel& book, char side, double price, int64_t delta) {
@@ -116,7 +149,7 @@ static std::vector<LevelRow> topAsks(const OrderBookLevel& book, int n) {
 }
 
 static std::string buildSnapshotInsert(
-    uint64_t seq, uint32_t obId, const std::string& sym,
+    uint64_t runId, uint64_t seq, uint32_t obId, const std::string& sym,
     uint32_t tsSec, uint32_t tsNsec,
     const OrderBookLevel& book)
 {
@@ -130,12 +163,12 @@ static std::string buildSnapshotInsert(
 
     std::ostringstream q;
     q << std::fixed << std::setprecision(4);
-    q << "INSERT INTO price_table_snapshots (sequence_number,event_ts_sec,event_ts_nsec,order_book_id,symbol,"
+    q << "INSERT INTO price_table_snapshots (run_id,sequence_number,event_ts_sec,event_ts_nsec,order_book_id,symbol,"
          "best_bid,best_ask,mid_price,spread";
 
     for (int i = 1; i <= 10; ++i) q << ",bid_price_" << i << ",bid_qty_" << i;
     for (int i = 1; i <= 10; ++i) q << ",ask_price_" << i << ",ask_qty_" << i;
-    q << ") VALUES (" << seq << "," << tsSec << "," << tsNsec << "," << obId << ",'"
+    q << ") VALUES (" << runId << "," << seq << "," << tsSec << "," << tsNsec << "," << obId << ",'"
       << sqlEscape(sym) << "'," << bestBid << "," << bestAsk << "," << mid << "," << spread;
 
     for (size_t i = 0; i < 10; ++i) {
@@ -152,8 +185,9 @@ static std::string buildSnapshotInsert(
 
 int main(int argc, char* argv[]) {
     try {
-        std::string pcapPath = "C:/Users/HUAWEI/Desktop/bist-lob-analysis/data/itch-pri-20260427.pcap";
-        std::string connStr = "dbname=bist_lob_db user=postgres password=erenberke host=localhost port=5432";
+        std::string pcapPath = getEnv("BIST_PCAP_PATH");
+        std::string connStr = getEnv("BIST_DB_CONN");
+        if (connStr.empty()) connStr = "dbname=bist_lob_db";
         uint64_t maxPackets = 0;
         uint64_t snapshotEvery = 5000;
 
@@ -163,6 +197,24 @@ int main(int argc, char* argv[]) {
             else if (arg == "--max-packets" && i + 1 < argc) maxPackets = std::stoull(argv[++i]);
             else if (arg == "--snapshot-every" && i + 1 < argc) snapshotEvery = std::stoull(argv[++i]);
             else if (arg == "--conn" && i + 1 < argc) connStr = argv[++i];
+            else if (arg == "--help" || arg == "-h") {
+                printUsage(argv[0]);
+                return 0;
+            } else {
+                std::cerr << "Gecersiz veya eksik parametre: " << arg << "\n";
+                printUsage(argv[0]);
+                return 1;
+            }
+        }
+
+        if (pcapPath.empty()) {
+            std::cerr << "[HATA] PCAP dosyasi belirtilmedi. --pcap veya BIST_PCAP_PATH kullanin.\n";
+            printUsage(argv[0]);
+            return 1;
+        }
+        if (snapshotEvery == 0) {
+            std::cerr << "[HATA] --snapshot-every sifirdan buyuk olmalidir.\n";
+            return 1;
         }
 
         std::cout << "=== BIST L2 Order Book ve Snapshot Motoru ===" << std::endl;
@@ -175,13 +227,18 @@ int main(int argc, char* argv[]) {
         }
         std::cout << "[OK] PostgreSQL baglantisi kuruldu." << std::endl;
 
+        execSql(dbConn, "CREATE TABLE IF NOT EXISTS analysis_runs ("
+            "id BIGSERIAL PRIMARY KEY, pcap_path TEXT NOT NULL, snapshot_every BIGINT NOT NULL,"
+            "status VARCHAR(16) NOT NULL DEFAULT 'running', started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),"
+            "finished_at TIMESTAMPTZ);");
+
         execSql(dbConn, "CREATE TABLE IF NOT EXISTS order_book_directory ("
             "order_book_id INTEGER PRIMARY KEY, symbol VARCHAR(32) NOT NULL,"
             "financial_product SMALLINT, price_decimals SMALLINT NOT NULL DEFAULT 2,"
             "isin VARCHAR(12), created_at TIMESTAMPTZ DEFAULT NOW());");
 
         execSql(dbConn, "CREATE TABLE IF NOT EXISTS price_table_snapshots ("
-            "id BIGSERIAL PRIMARY KEY, sequence_number BIGINT NOT NULL,"
+            "id BIGSERIAL PRIMARY KEY, run_id BIGINT, sequence_number BIGINT NOT NULL,"
             "event_ts_sec BIGINT, event_ts_nsec BIGINT, order_book_id INTEGER NOT NULL,"
             "symbol VARCHAR(32) NOT NULL, best_bid DOUBLE PRECISION, best_ask DOUBLE PRECISION,"
             "mid_price DOUBLE PRECISION, spread DOUBLE PRECISION,"
@@ -196,6 +253,19 @@ int main(int argc, char* argv[]) {
             "ask_price_7 DOUBLE PRECISION, ask_qty_7 BIGINT, ask_price_8 DOUBLE PRECISION, ask_qty_8 BIGINT,"
             "ask_price_9 DOUBLE PRECISION, ask_qty_9 BIGINT, ask_price_10 DOUBLE PRECISION, ask_qty_10 BIGINT,"
             "captured_at TIMESTAMPTZ DEFAULT NOW());");
+
+        execSql(dbConn, "ALTER TABLE price_table_snapshots ADD COLUMN IF NOT EXISTS run_id BIGINT;");
+        execSql(dbConn, "CREATE INDEX IF NOT EXISTS idx_pts_run_symbol_seq "
+                        "ON price_table_snapshots(run_id, symbol, sequence_number);");
+        execSql(dbConn, "CREATE UNIQUE INDEX IF NOT EXISTS uq_pts_run_symbol_seq "
+                        "ON price_table_snapshots(run_id, symbol, sequence_number) WHERE run_id IS NOT NULL;");
+
+        uint64_t runId = createAnalysisRun(dbConn, pcapPath, snapshotEvery);
+        if (runId == 0) {
+            PQfinish(dbConn);
+            return 1;
+        }
+        std::cout << "[OK] Analiz calismasi kaydedildi. run_id=" << runId << std::endl;
 
         std::unordered_map<uint32_t, BookMeta> bookMeta;
         std::unordered_map<std::string, OrderBookLevel> l2Books;
@@ -329,7 +399,7 @@ int main(int argc, char* argv[]) {
                         }
                         if (obId == 0) continue;
                         pendingSql.push_back(buildSnapshotInsert(
-                            sequenceCounter, obId, target, packetHeader.ts_sec, tsNsec, bookIt->second));
+                            runId, sequenceCounter, obId, target, packetHeader.ts_sec, tsNsec, bookIt->second));
                     }
                     eventsSinceSnapshot = 0;
                 }
@@ -350,6 +420,7 @@ int main(int argc, char* argv[]) {
 
         for (const auto& sql : pendingSql) execSql(dbConn, sql);
         execSql(dbConn, "COMMIT;");
+        execSql(dbConn, "UPDATE analysis_runs SET status='completed', finished_at=NOW() WHERE id=" + std::to_string(runId) + ";");
         PQfinish(dbConn);
 
         std::cout << "\n[ISLEM TAMAMLANDI]" << std::endl;
