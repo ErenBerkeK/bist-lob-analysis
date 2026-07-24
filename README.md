@@ -1,61 +1,98 @@
-# High-Frequency BIST L2 Limit Order Book (LOB) Engine & Quant Pipeline
 
-A high-performance C++17 market data parser and LOB reconstruction engine for Borsa İstanbul (BIST), integrated with PostgreSQL persistence and Python quantitative analysis tools.
+# 📈 BIST LOB Analysis (Limit Order Book Analytics Engine)
 
-## 🚀 Key Features
+![C++](https://img.shields.io/badge/C++-17-blue.svg)
+![Python](https://img.shields.io/badge/Python-3.10+-yellow.svg)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-red)
+![License](https://img.shields.io/badge/License-MIT-green.svg)
 
-- **C++17 High Performance Engine:** Parses binary NASDAQ ITCH protocol packets encapsulated in Ethernet/IP/UDP/MoldUDP64 frames.
-- **Real-Time Level-2 Reconstruction:** Maintains order book depth up to 10 levels for equities (`.E`) and futures contracts (`F_`).
-- **Zero-Copy Memory Design:** Utilizes `std::unordered_map` and flat price-level buffers for sub-microsecond snapshot generation.
-- **PostgreSQL Persistence:** Auto-schema migration, prepared batch statements, and composite B-Tree indexes on `(symbol, sequence_number)`.
-- **Quantitative Alpha Research:** Calculates 10-level Exponentially-Weighted Order Book Imbalance (OBI) and short-term future return correlations.
+**BIST LOB Analysis**, Borsa İstanbul (BIST) ham emir defteri (Limit Order Book) ve ITCH protokolü verilerini yüksek performansla işleyen, PostgreSQL üzerinde zaman serisi verisi olarak depolayan ve Python/Streamlit ile nicel (quantitative) alfa sinyalleri üreten uçtan uca bir finansal veri analiz motorudur.
 
-## 🏗 System Architecture
-[ PCAP Market Data ] ──> [ C++ MoldUDP64 / ITCH Parser ]
+---
+
+## 🏗️ Sistem Mimarisi (System Architecture)
+
+[ BIST ITCH Data Stream ]
 │
 ▼
-[ L2 Order Book Engine (10 Levels) ]
+┌───────────────────────────┐
+│  C++17 Parsing Engine     │ ──► High-Speed Binary Parsing & LOB Rebuilding
+└─────────────┬─────────────┘
 │
 ▼
-[ PostgreSQL Database (Index Optimized) ]
+┌───────────────────────────┐
+│  PostgreSQL Database      │ ──► Time-Series Tick & Order Book Snapshot Storage
+└─────────────┬─────────────┘
 │
 ▼
-[ Python Quant Analytics & OBI Signals ]
-## 📊 Quant Alpha Metrics
+┌───────────────────────────┐
+│  Python / Streamlit Dash  │ ──► Quantitative Metrics (OBI), Visualization & Alpha Signals
+└────────────────────────────┘
 
-Order Book Imbalance ($OBI$) across 10 price levels using exponential weight decay ($w_i = e^{-0.4(i-1)}$):
 
-$$OBI = \frac{\sum_{i=1}^{10} w_i \cdot Q_{bid,i} - \sum_{i=1}^{10} w_i \cdot Q_{ask,i}}{\sum_{i=1}^{10} w_i \cdot Q_{bid,i} + \sum_{i=1}^{10} w_i \cdot Q_{ask,i}}$$
+---
 
-## 💻 Tech Stack
-- **Language:** C++17, Python 3.10+
-- **Database:** PostgreSQL 15+ (`libpq`)
-- **Libraries:** Pandas, NumPy, Matplotlib, `psycopg2`
-- **Protocol Standards:** BIST ITCH v1.0, MoldUDP64
+## ⚡ Öne Çıkan Özellikler
 
-## Çalıştırma ayarları
+* **Düşük Gecikmeli C++17 Motoru:** BIST ITCH protokol mesajlarını binary seviyede çözer ve milisaniye altı hassasiyetle derinlik tablosunu (LOB) yeniden inşa eder.
+* **Verimli Veritabanı Mimarisi:** İşlenmiş emir defteri verilerini PostgreSQL üzerinde optimum indeksleme ve bölümlendirme ile saklar.
+* **Derinlik ve Ağırlıklı OBI Analizi:** 10 kademeli ağırlıklı Order Book Imbalance (OBI) hesabı ile anlık likidite baskısını ve fiyat yönünü tahmin eder.
+* **İnteraktif Dashboard:** Streamlit mimarisi ile veri akışını, derinlik grafiklerini ve alfa metriklerini görselleştirir.
 
-PCAP dosya yolu ve veritabanı parolası kaynak koda yazılmaz. PowerShell
-oturumunda aşağıdaki değişkenleri ayarlayın (örnek değerler için
-`.env.example` dosyasına bakın):
+---
 
-```powershell
-$env:BIST_PCAP_PATH = 'C:/veri/itch-pri-20260427.pcap'
-$env:BIST_DB_CONN = 'dbname=bist_lob_db host=localhost port=5432 user=postgres'
-$env:PGPASSWORD = 'parolaniz'
-```
+## 📐 Matematiksel Modeller ve Metrikler
 
-Ardından CMake ile derleyip motoru çalıştırın:
+### Order Book Imbalance (OBI)
+Emir defterindeki alış ve satış tarafı hacim uyumsuzluğunu ölçmek için kullanılan temel metrik:
 
-```powershell
-cmake -S . -B build
-cmake --build build --config Release
-.\build\Release\lob_engine.exe --snapshot-every 5000
-```
+$$OBI_t = \frac{\sum_{i=1}^{k} w_i \cdot V_{b,i} - \sum_{i=1}^{k} w_i \cdot V_{a,i}}{\sum_{i=1}^{k} w_i \cdot V_{b,i} + \sum_{i=1}^{k} w_i \cdot V_{a,i}}$$
 
-PostgreSQL standart konumda bulunamazsa yapılandırma sırasında konumunu
-belirtin:
+Burada:
+* $V_{b,i}$ ve $V_{a,i}$: $i$. kademedeki alış (bid) ve satış (ask) hacimleridir.
+* $w_i$: Kademe uzaklığına göre belirlenen ağırlık katsayısıdır ($w_i = \frac{1}{i}$).
+* $k$: İncelenen kademe sayısıdır ($k = 10$).
 
-```powershell
-cmake -S . -B build -DPostgreSQL_ROOT='C:/Program Files/PostgreSQL/18'
-```
+---
+
+## 🛠️ Teknoloji Yığını
+
+* **Engine:** C++17 (Boost, CMake)
+* **Database:** PostgreSQL 15+
+* **Analytics & UI:** Python 3.10+, Streamlit, Pandas, Matplotlib / Seaborn
+* **Version Control:** Git & GitHub
+
+---
+
+## 📂 Proje Dizin Yapısı
+
+```text
+bist-lob-analysis/
+├── cpp_engine/          # C++ ITCH parser ve LOB oluşturucu kodlar
+├── db/                  # PostgreSQL şemaları ve migration scriptleri
+├── app/                 # Python Streamlit arayüzü ve analiz modülleri
+├── tests/               # Birim ve entegrasyon testleri
+├── .gitignore           # Büyük veri dosyalarını (db_data vb.) hariç tutan kural seti
+├── requirements.txt     # Python bağımlılıkları
+└── README.md            # Proje dokümantasyonu
+🚀 Kurulum ve Çalıştırma
+1. Gereksinimler
+C++17 destekli derleyici (GCC / Clang / MSVC)
+
+CMake 3.18+
+
+PostgreSQL 15+
+
+Python 3.10+
+
+2. Python Bağımlılıklarının Kurulumu
+Bash
+python -m venv .venv
+# Windows PowerShell:
+.\.venv\Scripts\Activate.ps1
+
+pip install -r requirements.txt
+3. Arayüzün Çalıştırılması
+Bash
+streamlit run app/main.py
